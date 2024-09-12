@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>豫之缘嘉善职场内部作业</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.3.2/socket.io.js"></script>
+    <style>
+        body, html {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #f0f0f0;
+        }
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        #nameInputArea, #chatArea {
+            padding: 20px;
+        }
+        #chatArea {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        #chat {
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            padding: 10px;
+            min-height: 400px;
+        }
+        #inputArea {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"], button, input[type="file"] {
+            padding: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        #messageInput {
+            flex-grow: 1;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .message {
+            margin-bottom: 10px;
+            word-wrap: break-word;
+        }
+        .message .name {
+            font-weight: bold;
+        }
+        .message .time {
+            color: #888;
+            font-size: 0.8em;
+        }
+        .message img {
+            max-width: 300px;
+            max-height: 300px;
+            cursor: pointer;
+        }
+        #fileUpload {
+            display: none;
+        }
+        #fileLabel {
+            display: inline-block;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            cursor: pointer;
+        }
+        #errorMessage {
+            color: red;
+            margin-bottom: 10px;
+        }
+        #imageModal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.9);
+        }
+        #modalImage {
+            margin: auto;
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+        }
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="nameInputArea">
+            <h2>设置名字</h2>
+            <input type="text" id="nameInput" placeholder="请输入你的名字">
+            <button id="setNameBtn">确定</button>
+        </div>
+        <div id="chatArea" style="display:none;">
+            <div id="chat"></div>
+            <div id="errorMessage"></div>
+            <div id="inputArea">
+                <input type="text" id="messageInput" placeholder="输入消息">
+                <label for="fileUpload" id="fileLabel">选择文件</label>
+                <input type="file" id="fileUpload" accept="image/*,video/*,audio/*,.doc,.docx,.xls,.xlsx,.pdf">
+                <button id="sendBtn">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="imageModal">
+        <span class="close">&times;</span>
+        <img id="modalImage">
+    </div>
+
+    <script>
+        const socket = io();
+        let userName = '';
+
+        const nameInputArea = document.getElementById('nameInputArea');
+        const chatArea = document.getElementById('chatArea');
+        const nameInput = document.getElementById('nameInput');
+        const setNameBtn = document.getElementById('setNameBtn');
+        const chat = document.getElementById('chat');
+        const messageInput = document.getElementById('messageInput');
+        const fileUpload = document.getElementById('fileUpload');
+        const sendBtn = document.getElementById('sendBtn');
+        const imageModal = document.getElementById('imageModal');
+        const modalImage = document.getElementById('modalImage');
+        const closeBtn = document.getElementsByClassName('close')[0];
+
+        setNameBtn.addEventListener('click', () => {
+            userName = nameInput.value.trim();
+            if (userName) {
+                nameInputArea.style.display = 'none';
+                chatArea.style.display = 'flex';
+            }
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        fileUpload.addEventListener('change', uploadFile);
+
+        closeBtn.onclick = function() {
+            imageModal.style.display = "none";
+        }
+
+        window.onclick = function(event) {
+            if (event.target == imageModal) {
+                imageModal.style.display = "none";
+            }
+        }
+
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            if (content) {
+                socket.emit('chat message', { name: userName, content: content });
+                messageInput.value = '';
+            }
+        }
+
+        function uploadFile() {
+            const file = fileUpload.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('文件上传失败');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    socket.emit('chat message', {
+                        name: userName,
+                        content: '发送了一个文件',
+                        fileUrl: data.fileUrl,
+                        fileType: file.type,
+                        fileName: file.name
+                    });
+                    document.getElementById('errorMessage').textContent = '';
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('errorMessage').textContent = error.message;
+                });
+            }
+        }
+
+        socket.on('load messages', (messages) => {
+            messages.forEach(addMessage);
+        });
+
+        socket.on('chat message', addMessage);
+
+        function addMessage(msg) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            const time = new Date(msg.timestamp).toLocaleTimeString();
+            let contentHtml = msg.content;
+
+            if (msg.fileUrl) {
+                if (msg.fileType.startsWith('image/')) {
+                    contentHtml += `<br><img src="${msg.fileUrl}" alt="上传的图片" onclick="openImageModal('${msg.fileUrl}')">`;
+                } else if (msg.fileType.startsWith('video/')) {
+                    contentHtml += `<br><video src="${msg.fileUrl}" controls></video>`;
+                } else if (msg.fileType.startsWith('audio/')) {
+                    contentHtml += `<br><audio src="${msg.fileUrl}" controls></audio>`;
+                } else {
+                    contentHtml += `<br><a href="${msg.fileUrl}" download="${msg.fileName || '下载文件'}">下载 ${msg.fileName || '文件'}</a>`;
+                }
+            }
+
+            messageElement.innerHTML = `
+                <span class="name">${msg.name}:</span>
+                <span class="content">${contentHtml}</span>
+                <span class="time">${time}</span>
+            `;
+            chat.appendChild(messageElement);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function openImageModal(src) {
+            modalImage.src = src;
+            imageModal.style.display = "block";
+        }
+    </script>
+</body>
+</html>
